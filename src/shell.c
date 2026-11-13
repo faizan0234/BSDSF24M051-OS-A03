@@ -1,116 +1,117 @@
 
 #include "shell.h"
 
-// History storage
-static char history[HISTORY_SIZE][MAX_LEN];
-static int history_total = 0;
+// Commands available for TAB completion
+static char *commands[] = {
+    "exit", "cd", "help", "jobs", "history",
+    "pwd", "ls", "echo", "cat", "grep",
+    "mkdir", "rmdir", "touch", "rm", "cp",
+    "mv", "clear", "ps", "whoami", "date",
+    "cal", "uname", "head", "tail", NULL
+};
 
-// Add command to history
-void add_history(const char* command) {
-    if (command == NULL || command[0] == '\0') {
-        return;
+// Generate command suggestions
+static char *command_generator(const char *text, int state) {
+    static int index;
+    const char *name;
+
+    if (state == 0) {
+        index = 0;
     }
 
-    int index = history_total % HISTORY_SIZE;
+    while ((name = commands[index]) != NULL) {
+        index++;
 
-    strncpy(history[index], command, MAX_LEN - 1);
-    history[index][MAX_LEN - 1] = '\0';
-
-    history_total++;
-}
-
-// Display history
-void show_history(void) {
-    int first = history_total - HISTORY_SIZE + 1;
-
-    if (first < 1) {
-        first = 1;
-    }
-
-    for (int number = first; number <= history_total; number++) {
-        int index = (number - 1) % HISTORY_SIZE;
-
-        printf("%d  %s\n", number, history[index]);
-    }
-}
-
-// Get a command using its history number
-char* get_history_command(int number) {
-    int first = history_total - HISTORY_SIZE + 1;
-
-    if (first < 1) {
-        first = 1;
-    }
-
-    if (number < first || number > history_total) {
-        return NULL;
-    }
-
-    int index = (number - 1) % HISTORY_SIZE;
-
-    char* command = malloc(MAX_LEN);
-
-    if (command == NULL) {
-        perror("malloc");
-        return NULL;
-    }
-
-    strcpy(command, history[index]);
-
-    return command;
-}
-
-char* read_cmd(char* prompt, FILE* fp) {
-    printf("%s", prompt);
-
-    char* cmdline = malloc(sizeof(char) * MAX_LEN);
-
-    if (cmdline == NULL) {
-        perror("malloc");
-        return NULL;
-    }
-
-    int c, pos = 0;
-
-    while ((c = getc(fp)) != EOF) {
-        if (c == '\n') break;
-
-        if (pos < MAX_LEN - 1) {
-            cmdline[pos++] = c;
+        if (strncmp(name, text, strlen(text)) == 0) {
+            return strdup(name);
         }
     }
 
-    if (c == EOF && pos == 0) {
-        free(cmdline);
+    return NULL;
+}
+
+// Handle TAB completion
+static char **command_completion(const char *text, int start, int end) {
+    (void)end;
+
+    if (start == 0) {
+        return rl_completion_matches(text, command_generator);
+    }
+
+    return rl_completion_matches(text, rl_filename_completion_function);
+}
+
+// Read command using GNU Readline
+char* read_cmd(char* prompt) {
+    rl_attempted_completion_function = command_completion;
+    return readline(prompt);
+}
+
+// Display command history
+void show_history(void) {
+    HIST_ENTRY **list = history_list();
+
+    if (list == NULL) {
+        return;
+    }
+
+    for (int i = 0; list[i] != NULL; i++) {
+        printf("%d  %s\n", history_base + i, list[i]->line);
+    }
+}
+
+// Get command using its history number
+char* get_history_command(int number) {
+    HIST_ENTRY *entry = history_get(number);
+
+    if (entry == NULL) {
         return NULL;
     }
 
-    cmdline[pos] = '\0';
-
-    return cmdline;
+    return strdup(entry->line);
 }
 
+// Tokenize command
 char** tokenize(char* cmdline) {
     if (cmdline == NULL || cmdline[0] == '\0' || cmdline[0] == '\n') {
         return NULL;
     }
 
-    char** arglist = malloc(sizeof(char*) * (MAXARGS + 1));
+    char **arglist = malloc(sizeof(char*) * (MAXARGS + 1));
 
-    for (int i = 0; i < MAXARGS + 1; i++) {
-        arglist[i] = malloc(sizeof(char) * ARGLEN);
-        bzero(arglist[i], ARGLEN);
+    if (arglist == NULL) {
+        perror("malloc");
+        return NULL;
     }
 
-    char* cp = cmdline;
-    char* start;
+    for (int i = 0; i < MAXARGS + 1; i++) {
+        arglist[i] = calloc(ARGLEN, sizeof(char));
+
+        if (arglist[i] == NULL) {
+            perror("malloc");
+
+            for (int j = 0; j < i; j++) {
+                free(arglist[j]);
+            }
+
+            free(arglist);
+            return NULL;
+        }
+    }
+
+    char *cp = cmdline;
+    char *start;
     int len;
     int argnum = 0;
 
     while (*cp != '\0' && argnum < MAXARGS) {
-        while (*cp == ' ' || *cp == '\t') cp++;
+        while (*cp == ' ' || *cp == '\t') {
+            cp++;
+        }
 
-        if (*cp == '\0') break;
+        if (*cp == '\0') {
+            break;
+        }
 
         start = cp;
         len = 1;

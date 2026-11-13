@@ -5,7 +5,17 @@ int main() {
     char* cmdline;
     char** arglist;
 
-    while ((cmdline = read_cmd(PROMPT, stdin)) != NULL) {
+    // Initialize GNU Readline history
+    using_history();
+    stifle_history(HISTORY_SIZE);
+
+    while ((cmdline = read_cmd(PROMPT)) != NULL) {
+
+        // Ignore empty commands
+        if (cmdline[0] == '\0') {
+            free(cmdline);
+            continue;
+        }
 
         // Handle !n history execution
         if (cmdline[0] == '!') {
@@ -32,10 +42,13 @@ int main() {
             printf("%s\n", cmdline);
         }
 
-        // Save command in history
+        // Add command to GNU Readline history
         add_history(cmdline);
 
-        if ((arglist = tokenize(cmdline)) != NULL) {
+        // Tokenize and execute
+        arglist = tokenize(cmdline);
+
+        if (arglist != NULL) {
             execute(arglist);
 
             for (int i = 0; arglist[i] != NULL; i++) {
