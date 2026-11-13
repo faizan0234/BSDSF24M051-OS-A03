@@ -1,3 +1,4 @@
+
 #include "shell.h"
 
 int execute(char* arglist[]) {
@@ -18,6 +19,7 @@ int execute(char* arglist[]) {
 
         if (path == NULL || chdir(path) != 0) {
             perror("cd");
+            return 1;
         }
 
         return 0;
@@ -26,16 +28,23 @@ int execute(char* arglist[]) {
     // Built-in command: help
     if (strcmp(arglist[0], "help") == 0) {
         printf("\nBuilt-in commands:\n");
-        printf("  exit  - Exit the shell\n");
-        printf("  cd    - Change directory\n");
-        printf("  help  - Display help information\n");
-        printf("  jobs  - Display background jobs\n\n");
+        printf("  exit     - Exit the shell\n");
+        printf("  cd       - Change directory\n");
+        printf("  help     - Display help information\n");
+        printf("  jobs     - Display background jobs\n");
+        printf("  history  - Display command history\n\n");
         return 0;
     }
 
     // Built-in command: jobs
     if (strcmp(arglist[0], "jobs") == 0) {
         printf("No background jobs.\n");
+        return 0;
+    }
+
+    // Built-in command: history
+    if (strcmp(arglist[0], "history") == 0) {
+        show_history();
         return 0;
     }
 
