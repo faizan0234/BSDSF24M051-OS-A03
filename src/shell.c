@@ -71,9 +71,16 @@ char* get_history_command(int number) {
     return strdup(entry->line);
 }
 
+// Check whitespace characters
+static int is_whitespace(char ch) {
+    return ch == ' ' || ch == '\t' ||
+           ch == '\n' || ch == '\r';
+}
+
 // Tokenize command
 char** tokenize(char* cmdline) {
-    if (cmdline == NULL || cmdline[0] == '\0' || cmdline[0] == '\n') {
+
+    if (cmdline == NULL) {
         return NULL;
     }
 
@@ -105,7 +112,9 @@ char** tokenize(char* cmdline) {
     int argnum = 0;
 
     while (*cp != '\0' && argnum < MAXARGS) {
-        while (*cp == ' ' || *cp == '\t') {
+
+        // Skip spaces, tabs and newline characters
+        while (is_whitespace(*cp)) {
             cp++;
         }
 
@@ -114,10 +123,12 @@ char** tokenize(char* cmdline) {
         }
 
         start = cp;
-        len = 1;
+        len = 0;
 
-        while (*++cp != '\0' && !(*cp == ' ' || *cp == '\t')) {
+        // Read one token until whitespace
+        while (*cp != '\0' && !is_whitespace(*cp)) {
             len++;
+            cp++;
         }
 
         if (len >= ARGLEN) {

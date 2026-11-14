@@ -1,10 +1,16 @@
 
 #include "shell.h"
+
 #include <fcntl.h>
+#include <errno.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define MAX_JOBS 20
 
-// Background job structure
 typedef struct {
     int job_id;
     pid_t pids[MAXARGS];
@@ -16,14 +22,15 @@ typedef struct {
 static Job job_list[MAX_JOBS];
 static int next_job_id = 1;
 
-// Function declarations
 static void reap_background_jobs(void);
 static void show_jobs(void);
 static void add_job(pid_t pids[], int count, const char *command);
-static int execute_single(char **arglist, int background, const char *command);
-static int execute_pipeline(char **arglist, int background, const char *command);
+static int execute_single(char **arglist, int background,
+                          const char *command);
+static int execute_pipeline(char **arglist, int background,
+                            const char *command);
 
-// Add a background job
+/* Add a background job to the job table */
 static void add_job(pid_t pids[], int count, const char *command) {
     for (int i = 0; i < MAX_JOBS; i++) {
         if (!job_list[i].active) {
@@ -46,33 +53,53 @@ static void add_job(pid_t pids[], int count, const char *command) {
 
     fprintf(stderr, "Maximum background jobs reached.\n");
 
-    // Wait for processes if job table is full
     for (int i = 0; i < count; i++) {
         waitpid(pids[i], NULL, 0);
     }
 }
 
-// Reap completed background processes without blocking
+/* Reap completed background processes without blocking */
 static void reap_background_jobs(void) {
-    for (int i = 0; i < MAX_JOBS; i++) {
-        if (!job_list[i].active) {
-            continue;
+    int status;
+    pid_t finished_pid;
+
+    /*
+     * -1 means wait for any child process.
+     * WNOHANG makes waitpid non-blocking.
+     */
+    while (1) {
+        finished_pid = waitpid(-1, &status, WNOHANG);
+
+        if (finished_pid > 0) {
+            for (int i = 0; i < MAX_JOBS; i++) {
+                if (!job_list[i].active) {
+                    continue;
+                }
+
+                for (int j = 0; j < job_list[i].process_count; j++) {
+                    if (job_list[i].pids[j] == finished_pid) {
+                        job_list[i].pids[j] = -1;
+                        break;
+                    }
+                }
+            }
         }
-
-        for (int j = 0; j < job_list[i].process_count; j++) {
-            pid_t pid = job_list[i].pids[j];
-
-            if (pid <= 0) {
+        else if (finished_pid == 0) {
+            break;
+        }
+        else {
+            if (errno == EINTR) {
                 continue;
             }
 
-            int status;
-            pid_t result = waitpid(pid, &status, WNOHANG);
+            break;
+        }
+    }
 
-            if (result == pid ||
-                (result == -1 && errno == ECHILD)) {
-                job_list[i].pids[j] = -1;
-            }
+    /* Check which jobs have completed */
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (!job_list[i].active) {
+            continue;
         }
 
         int completed = 1;
@@ -88,12 +115,13 @@ static void reap_background_jobs(void) {
             printf("[%d] Done %s\n",
                    job_list[i].job_id,
                    job_list[i].command);
+
             job_list[i].active = 0;
         }
     }
 }
 
-// Display background jobs
+/* Display background jobs */
 static void show_jobs(void) {
     reap_background_jobs();
 
@@ -115,7 +143,7 @@ static void show_jobs(void) {
     }
 }
 
-// Execute built-in commands
+/* Execute built-in commands */
 static int execute_builtin(char **arglist) {
 
     if (strcmp(arglist[0], "exit") == 0) {
@@ -147,6 +175,7 @@ static int execute_builtin(char **arglist) {
         printf("  history  - Display command history\n");
         printf("  ;        - Execute commands sequentially\n");
         printf("  &        - Execute command in background\n\n");
+
         return 0;
     }
 
@@ -163,7 +192,7 @@ static int execute_builtin(char **arglist) {
     return -1;
 }
 
-// Execute a command with input/output descriptors
+/* Execute a command with input/output descriptors */
 static void execute_command(char **args, int input_fd, int output_fd) {
 
     if (input_fd != STDIN_FILENO) {
@@ -194,7 +223,7 @@ static void execute_command(char **args, int input_fd, int output_fd) {
     _exit(1);
 }
 
-// Execute pipelines and redirections
+/* Execute pipelines and redirections */
 static int execute_pipeline(char **arglist, int background,
                             const char *command) {
 
@@ -312,8 +341,8 @@ static int execute_pipeline(char **arglist, int background,
 
             if (output_files[i] != NULL) {
                 output_fd = open(output_files[i],
-                                 O_WRONLY | O_CREAT | O_TRUNC,
-                                 0644);
+                                  O_WRONLY | O_CREAT | O_TRUNC,
+                                  0644);
 
                 if (output_fd == -1) {
                     perror("output file");
@@ -366,7 +395,8 @@ static int execute_pipeline(char **arglist, int background,
         if (waitpid(pids[i], &child_status, 0) == -1) {
             perror("waitpid");
             status = 1;
-        } else if (i == created - 1) {
+        }
+        else if (i == created - 1) {
             status = WIFEXITED(child_status)
                      ? WEXITSTATUS(child_status) : 1;
         }
@@ -375,7 +405,7 @@ static int execute_pipeline(char **arglist, int background,
     return status;
 }
 
-// Execute one command
+/* Execute one command */
 static int execute_single(char **arglist, int background,
                           const char *command) {
 
@@ -442,7 +472,28 @@ static int execute_single(char **arglist, int background,
     return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
 }
 
-// Main execute function
+/* Build the complete command text for job display */
+static void build_command(char *buffer, size_t size,
+                          char **arglist, int start, int end) {
+
+    buffer[0] = '\0';
+    size_t used = 0;
+
+    for (int i = start; i < end; i++) {
+        int written = snprintf(buffer + used, size - used,
+                               "%s%s",
+                               (i == start) ? "" : " ",
+                               arglist[i]);
+
+        if (written < 0 || (size_t)written >= size - used) {
+            break;
+        }
+
+        used += (size_t)written;
+    }
+}
+
+/* Main execute function */
 int execute(char **arglist) {
 
     if (arglist == NULL || arglist[0] == NULL) {
@@ -467,13 +518,16 @@ int execute(char **arglist) {
                 background = 1;
             }
 
+            char command[MAX_LEN];
+            build_command(command, sizeof(command), arglist, start, i);
+
             char *separator = arglist[i];
             arglist[i] = NULL;
 
             if (start < i) {
                 status = execute_single(&arglist[start],
                                         background,
-                                        arglist[start]);
+                                        command);
             }
 
             if (separator == NULL) {
