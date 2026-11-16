@@ -32,3 +32,18 @@ make clean
 *   `/bin`: Contains the final compiled executable (`psh`).
 *   `/obj`: Contains intermediate object files (`.o`) created during compilation.
 *   `Makefile`: The build script for the project.
+
+*   ## Supported Features
+
+This shell currently supports the following features:
+
+- Basic command execution using fork() and execvp().
+- Built-in commands: exit, cd, help, and jobs.
+- Command history with support for the last 20 commands.
+- GNU Readline with command and file completion.
+- Input and output redirection.
+- Pipes for connecting multiple commands.
+- Command sequencing using semicolons.
+- Background job execution.
+- Multiline if-then-else-fi conditionals.
+- Shell variable assignment and expansion.
